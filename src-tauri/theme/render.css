@@ -1,0 +1,6 @@
+:root {
+    --render-primary: rgb(9, 9, 15);
+    --render-secondary: rgb(226, 226, 226);
+    --render-accent: rgb(142, 150, 255);
+    --render-font-family: Arial;
+}

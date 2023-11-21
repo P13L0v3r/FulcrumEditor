@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Document</title>
+    <!-- <link rel="stylesheet" type="text/css" href="theme/theme.css"> -->
+    <!-- <link rel="stylesheet" type="text/css" href="theme/render.css"> -->
+    <style>
+        body {
+            overflow: hidden;
+            z-index: 1;
+        }
+
+        .textarea-container {
+            margin-right: auto;
+            margin-left: auto;
+            width: 100%;
+            display: flex;
+            flex-direction: row;
+            justify-content: space-between;
+        }
+
+        textarea {
+            resize: none;
+            tab-size: 4;
+            border: none;
+        }
+
+        .half-wide {
+            width: 48vw;
+        }
+
+        .fullscreen {
+            width: 98vw;
+            height: 98vh;
+        }
+
+        .outline {
+            outline-style: solid;
+            outline-width: 1px;
+        }
+
+        .dialog {
+            background-color: var(--dialog-primary, silver);
+            color: var(--dialog-secondary, rgb(50, 50, 50));
+            position: absolute;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 2;
+            padding: 0.5em;
+            height: fit-content;
+            width: fit-content;
+            margin: auto;
+            left: 25%;
+            top: 25%;
+            outline-style: solid;
+            outline-width: 1px;
+            outline-color: var(--dialog-accent, royalblue);
+        }
+
+        body, .fulcrum-editor {
+            background-color: var(--body-bg-color, rgb(50, 50, 50));
+        }
+
+        #displayHTML {
+            background-color: var(--render-primary, silver);
+            color: var(--render-secondary, rgb(50, 50, 50));
+            font-family: var(--render-font-family, Verdana);
+            padding: 1em;
+            width: calc(48vw - 2em);
+        }
+
+        #displayHTML h1,
+        #displayHTML h2,
+        #displayHTML h3,
+        #displayHTML h4,
+        #displayHTML h5,
+        #displayHTML h6,
+        #displayHTML li::marker,
+        #displayHTML a {
+            color: var(--render-accent, royalblue);
+        }
+
+        #editor, #displayText {
+            background-color: var(--editor-primary, silver);
+            color: var(--editor-secondary, rgb(50, 50, 50));
+            font-family: var(--editor-font-family, Verdana);
+        }
+
+        .symbol-editor {
+            background-color: var(--dialog-primary, silver);
+            color: var(--dialog-secondary, rgb(50, 50, 50));
+            font-family: var(--dialog-font-family, Verdana);
+        }
+
+    </style>
+</head>
+
+<body>
+
+    <div class="textarea-container fullscreen fulcrum-editor">
+        <textarea id="editor" class="half-wide" onkeyup="render()"></textarea>
+        <textarea id="displayText" class="half-wide" readonly></textarea>
+        <div id="displayHTML" class="half-wide" style="display: none;"></div>
+    </div>
+
+    <div class="dialog symbol-editor" id="renameSymbolDialog" style="display: none;">
+        <header>Rename Symbol</header>
+        <input type="text" id="newSymbolName" onblur="closeRenameSymbolDialog()">
+    </div>
+
+    <script>
+        // access the pre-bundled global API functions
+        const { invoke } = window.__TAURI__.tauri;
+        const { readTextFile, writeTextFile } = window.__TAURI__.fs;
+        const { emit, listen } = window.__TAURI__.event;
+        const { appWindow } = window.__TAURI__.window;
+        const resolveResource = window.__TAURI__.path.resolveResource;
+
+        let head = document.getElementsByTagName('HEAD')[0];
+        let styleElement = document.getElementsByTagName('STYLE')[0];
+
+        const themeResourcePath = resolveResource('theme/theme.css').then((response) => {
+            let themeStyle = document.createElement('style');
+            themeStyle.type = 'text/css';
+
+            readTextFile(response).then((css) => {
+                console.log(css)
+                if (themeStyle.styleSheet) {
+                    themeStyle.styleSheet.cssText = css;
+                } else {
+                    themeStyle.appendChild(document.createTextNode(css))
+                }
+            });
+            head.insertBefore(themeStyle, styleElement);
+        });
+
+        const renderResourcePath = resolveResource('theme/render.css').then((response) => {
+            let renderStyle = document.createElement('style');
+            renderStyle.type = 'text/css';
+
+            readTextFile(response).then((css) => {
+                console.log(css)
+                if (renderStyle.styleSheet) {
+                    renderStyle.styleSheet.cssText = css;
+                } else {
+                    renderStyle.appendChild(document.createTextNode(css))
+                }
+            });
+            head.insertBefore(renderStyle, styleElement);
+        });        
+
+        var sessionData = {
+            currentFileName: "",
+            currentFilePath: "",
+            currentFileType: "",
+            currentSelectedText: ""
+        }
+
+        window.editor.addEventListener('keydown', function (e) {
+            if (e.key == 'Tab') {
+                e.preventDefault();
+                var start = this.selectionStart;
+                var end = this.selectionEnd;
+
+                // set textarea value to: text before caret + tab + text after caret
+                this.value = this.value.substring(0, start) + "\t" + this.value.substring(end);
+
+                // put caret at right position again
+                this.selectionStart = this.selectionEnd = start + 1;
+            }
+        });
+
+        window.editor.addEventListener("select", function (e) {
+            let selectionStart = event.target.selectionStart;
+            let selectionEnd = event.target.selectionEnd;
+
+            if (selectionEnd > 0) {
+                if (event.target.value.substring(selectionEnd - 1, selectionEnd) === " ") {
+                    selectionEnd = selectionEnd - 1;
+                }
+            }
+
+            var enableButton = false;
+
+            if (selectionStart - 4 >= 0 && selectionEnd + 2 < event.target.value.length) {
+                var selectedText = event.target.value.substring(
+                    selectionStart,
+                    selectionEnd,
+                );
+
+                if (event.target.value.substring(selectionStart - 4, selectionEnd + 2) === "def "+selectedText+" {") {
+                    enableButton = true;
+                }
+            }
+
+            invoke('set_rename_button', { enabled: enableButton });
+
+            sessionData.currentSelectedText = selectedText;
+        })
+
+        appWindow.listen('rename-symbol', (event) => {
+            window.newSymbolName.value = sessionData.currentSelectedText;
+            window.renameSymbolDialog.style.display = "initial";
+            window.newSymbolName.focus();
+        })
+
+        window.newSymbolName.onkeypress = (event) => {
+            if (event.key === "Enter") {
+                renameSymbol();
+            }
+        }
+
+        function closeRenameSymbolDialog() {
+            window.newSymbolName.value = "";
+            window.renameSymbolDialog.style.display = "none";
+            window.newSymbolName.blur();
+        }
+
+        function renameSymbol() {
+            let newSymbolName = window.newSymbolName.value;
+            if (newSymbolName) {
+                var editorText = window.editor.value;
+                editorText = editorText.replace("def " + sessionData.currentSelectedText + " {", "def " + newSymbolName + " {").replaceAll("@" + sessionData.currentSelectedText, "@" + newSymbolName);
+                window.editor.value = editorText;
+                sessionData.currentSelectedText = "";
+                render(true);
+            }
+            
+            closeRenameSymbolDialog();
+        }
+
+        function checkFileType() {
+            switch (sessionData.currentFileType) {
+                case "md":
+                    window.displayText.style.display = "none";
+                    window.displayHTML.style.display = "initial";
+                    break;
+                default:
+                    window.displayText.style.display = "initial";
+                    window.displayHTML.style.display = "none";
+                    break;
+            }
+        }
+
+        appWindow.listen('open-file', (event) => {
+            readTextFile(event.payload)
+                .then((value) => {
+                    sessionData.currentFilePath = event.payload;
+                    sessionData.currentFileName = sessionData.currentFilePath.split('\\').pop().split('/').pop();
+                    sessionData.currentFileType = sessionData.currentFileName.split('.').pop();
+
+                    window.editor.innerHTML = value;
+                    window.editor.value = value;
+                    appWindow.setTitle("Fulcrum Editor - " + sessionData.currentFileName);
+                    checkFileType();
+                    setSaveButton(true);
+                    render(false);
+                });
+        });
+
+        appWindow.listen('new-file', (event) => {
+            sessionData.currentFileName = "";
+            sessionData.currentFilePath = "";
+            sessionData.currentFileType = "";
+            window.editor.innerHTML = "";
+            window.editor.value = "";
+            appWindow.setTitle("Fulcrum Editor");
+            checkFileType();
+            setSaveButton(false);
+            render(false);
+        });
+
+        appWindow.listen('save-file', (event) => {
+            if (sessionData.currentFilePath) {
+                writeTextFile(sessionData.currentFilePath, window.editor.value).then((response) => {
+                    console.log(sessionData.currentFilePath);
+                });
+                appWindow.setTitle("Fulcrum Editor - " + sessionData.currentFileName);
+            }
+        });
+
+        appWindow.listen('save-as-file', (event) => {
+            saveNew(event);
+        });
+
+        function saveNew(event) {
+            sessionData.currentFilePath = event.payload;
+            sessionData.currentFileName = sessionData.currentFilePath.split('\\').pop().split('/').pop();
+            sessionData.currentFileType = sessionData.currentFileName.split('.').pop();
+
+            writeTextFile(event.payload, window.editor.value).then((response) => {
+                console.log(sessionData.currentFilePath);
+            });
+            appWindow.setTitle("Fulcrum Editor - " + sessionData.currentFileName);
+            checkFileType();
+            setSaveButton(true);
+        }
+
+        appWindow.listen('export-file', (event) => {
+            var exportFileType = event.payload.split('\\').pop().split('/').pop().split('.').pop();
+            switch (exportFileType) {
+                case "html":
+                    writeTextFile(event.payload, window.displayHTML.innerHTML);
+                    break;
+                default:
+                    writeTextFile(event.payload, window.displayText.value);
+                    break;
+            }
+        });
+
+        function setSaveButton(enabled) {
+            invoke('set_save_button', { enabled: enabled });
+        }
+
+        function render(warn = true) {
+            if (warn) {
+                appWindow.setTitle("Fulcrum Editor - " + sessionData.currentFileName + "*");
+            }
+
+            // now we can call our Command!
+            // You will see "Welcome from Tauri" replaced
+            // by "Hello, World!"!
+            invoke('parse_text', { text_to_parse: window.editor.value })
+                // `invoke` returns a Promise
+                .then((parsed_text) => {
+                    window.displayText.innerHTML = parsed_text;
+                    window.displayText.value = parsed_text;
+                    invoke('render_text', { text_to_render: parsed_text, file_extension: sessionData.currentFileType })
+                        .then((rendered_text) => {
+                            window.displayHTML.innerHTML = rendered_text;
+                        })
+                })
+        }
+
+    </script>
+</body>
+
+</html>
