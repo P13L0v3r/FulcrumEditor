@@ -158,7 +158,8 @@
             currentFileName: "",
             currentFilePath: "",
             currentFileType: "",
-            currentSelectedText: ""
+            currentSelectedText: "",
+            lastSaveValue: ""
         }
 
         window.editor.addEventListener('keydown', function (e) {
@@ -228,7 +229,7 @@
                 editorText = editorText.replace("def " + sessionData.currentSelectedText + " {", "def " + newSymbolName + " {").replaceAll("@" + sessionData.currentSelectedText, "@" + newSymbolName);
                 window.editor.value = editorText;
                 sessionData.currentSelectedText = "";
-                render(true);
+                render();
             }
             
             closeRenameSymbolDialog();
@@ -256,10 +257,11 @@
 
                     window.editor.innerHTML = value;
                     window.editor.value = value;
+                    sessionData.lastSaveValue = window.editor.value;
                     appWindow.setTitle("Fulcrum Editor - " + sessionData.currentFileName);
                     checkFileType();
                     setSaveButton(true);
-                    render(false);
+                    render();
                 });
         });
 
@@ -269,10 +271,11 @@
             sessionData.currentFileType = "";
             window.editor.innerHTML = "";
             window.editor.value = "";
+            sessionData.lastSaveValue = window.editor.value;
             appWindow.setTitle("Fulcrum Editor");
             checkFileType();
             setSaveButton(false);
-            render(false);
+            render();
         });
 
         appWindow.listen('save-file', (event) => {
@@ -281,6 +284,7 @@
                     console.log(sessionData.currentFilePath);
                 });
                 appWindow.setTitle("Fulcrum Editor - " + sessionData.currentFileName);
+                sessionData.lastSaveValue = window.editor.value;
             }
         });
 
@@ -317,8 +321,8 @@
             invoke('set_save_button', { enabled: enabled });
         }
 
-        function render(warn = true) {
-            if (warn) {
+        function render() {
+            if (window.editor.value !== sessionData.lastSaveValue) {
                 appWindow.setTitle("Fulcrum Editor - " + sessionData.currentFileName + "*");
             }
 
