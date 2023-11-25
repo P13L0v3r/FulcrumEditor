@@ -8,8 +8,8 @@ jobs:
       contents: write
     strategy:
       fail-fast: false
-      matrix:
-        platform: [macos-latest, ubuntu-20.04, windows-latest]
+      matrix: # removed windows-latest to reduce build time. Can add it back if repo ever goes public
+        platform: [macos-latest, ubuntu-20.04] 
 
     runs-on: ${{ matrix.platform }}
     steps:
