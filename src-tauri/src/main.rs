@@ -11,18 +11,26 @@ use tauri::{
     Window,
 };
 
+const NEW_SHORTCUT: &str = "CommandOrControl+N";
+const OPEN_SHORTCUT: &str = "CommandOrControl+O";
 const SAVE_SHORTCUT: &str = "CommandOrControl+S";
+const SAVE_AS_SHORTCUT: &str = "CommandOrControl+Shift+S";
+const EXPORT_SHORTCUT: &str = "CommandOrControl+E";
 const RENAME_SHORTCUT: &str = "CommandOrControl+Shift+R";
+const OBJECT_BANK_SHORTCUT: &str = "CommandOrControl+B";
 
 fn main() {
     // here `"quit".to_string()` defines the menu item id, and the second parameter is the menu item label.
-    let new_file = CustomMenuItem::new("new_file".to_string(), "New");
-    let open_file = CustomMenuItem::new("open_file".to_string(), "Open");
+    let new_file = CustomMenuItem::new("new_file".to_string(), "New").accelerator(NEW_SHORTCUT);
+    let open_file = CustomMenuItem::new("open_file".to_string(), "Open").accelerator(OPEN_SHORTCUT);
     let save_file = CustomMenuItem::new("save_file".to_string(), "Save")
         .accelerator(SAVE_SHORTCUT)
         .disabled();
-    let save_as_file = CustomMenuItem::new("save_as_file".to_string(), "Save As");
-    let export_file = CustomMenuItem::new("export_file".to_string(), "Export");
+    let save_as_file =
+        CustomMenuItem::new("save_as_file".to_string(), "Save As").accelerator(SAVE_AS_SHORTCUT);
+    let export_file = CustomMenuItem::new("export_file".to_string(), "Export")
+        .accelerator(EXPORT_SHORTCUT)
+        .disabled();
     let file_menu = Submenu::new(
         "File",
         Menu::new()
@@ -38,7 +46,12 @@ fn main() {
         .disabled();
     let edit_menu = Submenu::new("Edit", Menu::new().add_item(rename_symbol));
 
-    let menu = Menu::new().add_submenu(file_menu).add_submenu(edit_menu);
+    let object_bank = CustomMenuItem::new("object_bank".to_string(), "Object Bank");
+
+    let menu = Menu::new()
+        .add_submenu(file_menu)
+        .add_submenu(edit_menu)
+        .add_item(object_bank);
 
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
@@ -46,7 +59,58 @@ fn main() {
             render_text,
             set_save_button,
             set_rename_button,
+            set_export_button,
         ])
+        .setup(|app| {
+            let app_handle = app.app_handle();
+            let mut shortcuts = app_handle.global_shortcut_manager();
+
+            shortcuts.unregister_all().unwrap();
+
+            if !shortcuts.is_registered(OBJECT_BANK_SHORTCUT)? {
+                let object_bank_app_handle = app_handle.clone();
+                shortcuts
+                    .register(OBJECT_BANK_SHORTCUT, move || {
+                        if let Some(window) = object_bank_app_handle.get_window("main") {
+                            window.emit("object-bank", "").unwrap();
+                        }
+                    })
+                    .unwrap();
+            }
+
+            if !shortcuts.is_registered(NEW_SHORTCUT)? {
+                let new_file_app_handle = app_handle.clone();
+                shortcuts
+                    .register(NEW_SHORTCUT, move || {
+                        if let Some(window) = new_file_app_handle.get_window("main") {
+                            window.emit("new-file", "").unwrap();
+                        }
+                    })
+                    .unwrap();
+            }
+
+            if !shortcuts.is_registered(OPEN_SHORTCUT)? {
+                let open_file_app_handle = app_handle.clone();
+                shortcuts
+                    .register(OPEN_SHORTCUT, move || {
+                        if let Some(window) = open_file_app_handle.get_window("main") {
+                            FileDialogBuilder::new()
+                                .add_filter("Text Files", &["txt"])
+                                .add_filter("Markdown Files", &["md"])
+                                .pick_file(move |picked_file_path| {
+                                    if let Some(file_path) = picked_file_path {
+                                        window
+                                            .emit("open-file", file_path.to_str().unwrap())
+                                            .unwrap();
+                                    }
+                                })
+                        }
+                    })
+                    .unwrap();
+            }
+
+            Ok(())
+        })
         .menu(menu)
         .on_menu_event(|event| {
             let event_window = event.window().clone();
@@ -67,14 +131,17 @@ fn main() {
                 "save_file" => {
                     event_window.emit("save-file", "").unwrap();
                 }
-                "save_as_file" => FileDialogBuilder::new().save_file(move |picked_file_path| {
-                    if let Some(file_path) = picked_file_path {
-                        println!("{}", file_path.to_str().unwrap());
-                        event_window
-                            .emit("save-as-file", file_path.to_str().unwrap())
-                            .unwrap();
-                    }
-                }),
+                "save_as_file" => FileDialogBuilder::new()
+                    .add_filter("Text Files", &["txt"])
+                    .add_filter("Markdown Files", &["md"])
+                    .save_file(move |picked_file_path| {
+                        if let Some(file_path) = picked_file_path {
+                            println!("{}", file_path.to_str().unwrap());
+                            event_window
+                                .emit("save-as-file", file_path.to_str().unwrap())
+                                .unwrap();
+                        }
+                    }),
                 "export_file" => FileDialogBuilder::new()
                     .add_filter("Text Files", &["txt"])
                     .add_filter("Markdown Files", &["md"])
@@ -88,6 +155,7 @@ fn main() {
                         }
                     }),
                 "rename_symbol" => event_window.emit("rename-symbol", "").unwrap(),
+                "object_bank" => event_window.emit("object-bank", "").unwrap(),
                 _ => {}
             }
         })
@@ -105,7 +173,7 @@ fn set_save_button(enabled: bool, window: Window) -> tauri::Result<()> {
             if !shortcuts.is_registered(SAVE_SHORTCUT)? {
                 shortcuts
                     .register(SAVE_SHORTCUT, move || {
-                        if let Some(window) = app_handle.get_focused_window() {
+                        if let Some(window) = app_handle.get_window("main") {
                             window.emit("save-file", "").unwrap();
                         }
                     })
@@ -126,6 +194,47 @@ fn set_save_button(enabled: bool, window: Window) -> tauri::Result<()> {
 }
 
 #[tauri::command(rename_all = "snake_case")]
+fn set_export_button(enabled: bool, window: Window) -> tauri::Result<()> {
+    let app_handle = window.app_handle();
+    let mut shortcuts = app_handle.global_shortcut_manager();
+
+    match enabled {
+        true => {
+            if !shortcuts.is_registered(EXPORT_SHORTCUT)? {
+                shortcuts
+                    .register(EXPORT_SHORTCUT, move || {
+                        if let Some(window) = app_handle.get_window("main") {
+                            FileDialogBuilder::new()
+                                .add_filter("Text Files", &["txt"])
+                                .add_filter("Markdown Files", &["md"])
+                                .add_filter("HTML Files", &["html"])
+                                .save_file(move |picked_file_path| {
+                                    if let Some(file_path) = picked_file_path {
+                                        println!("{}", file_path.to_str().unwrap());
+                                        window
+                                            .emit("export-file", file_path.to_str().unwrap())
+                                            .unwrap();
+                                    }
+                                })
+                        }
+                    })
+                    .unwrap();
+            }
+        }
+        false => {
+            if shortcuts.is_registered(EXPORT_SHORTCUT)? {
+                shortcuts.unregister(EXPORT_SHORTCUT).unwrap();
+            }
+        }
+    }
+
+    window
+        .menu_handle()
+        .get_item("export_file")
+        .set_enabled(enabled)
+}
+
+#[tauri::command(rename_all = "snake_case")]
 fn set_rename_button(enabled: bool, window: Window) -> tauri::Result<()> {
     let app_handle = window.app_handle();
     let mut shortcuts = app_handle.global_shortcut_manager();
@@ -135,7 +244,7 @@ fn set_rename_button(enabled: bool, window: Window) -> tauri::Result<()> {
             if !shortcuts.is_registered(RENAME_SHORTCUT)? {
                 shortcuts
                     .register(RENAME_SHORTCUT, move || {
-                        if let Some(window) = app_handle.get_focused_window() {
+                        if let Some(window) = app_handle.get_window("main") {
                             window.emit("rename-symbol", "").unwrap();
                         }
                     })
@@ -168,7 +277,7 @@ type Entity = Map<String, Value>;
 const DECLARATION_CHARS: [u8; 4] = [b'd', b'e', b'f', b' '];
 
 #[tauri::command(rename_all = "snake_case")]
-fn parse_text(text_to_parse: &str) -> String {
+fn parse_text(text_to_parse: &str, window: Window) -> String {
     let mut entity_hash: HashMap<String, Entity> = HashMap::new();
 
     let mut text_sections: Vec<String> = Vec::new();
@@ -309,6 +418,15 @@ fn parse_text(text_to_parse: &str) -> String {
             }
         }
     }
+
+    let mut object_bank: Map<String, Value> = Map::new();
+
+    for (entity_id, entity) in entity_hash.iter() {
+        let key_vec = entity.keys().map(|k| Value::String(k.clone())).collect();
+        object_bank.insert(entity_id.clone(), Value::Array(key_vec));
+    }
+
+    window.emit("populate-object-bank", object_bank).unwrap();
 
     final_text_string.trim().to_string()
 }

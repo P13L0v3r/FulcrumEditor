@@ -5,8 +5,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Document</title>
-    <!-- <link rel="stylesheet" type="text/css" href="theme/theme.css"> -->
-    <!-- <link rel="stylesheet" type="text/css" href="theme/render.css"> -->
+    <script src="lodash.js"></script>
     <style>
         body {
             overflow: hidden;
@@ -55,14 +54,17 @@
             height: fit-content;
             width: fit-content;
             margin: auto;
-            left: 25%;
-            top: 25%;
+            /* left: 25%; */
+            /* top: 25%; */
             outline-style: solid;
             outline-width: 1px;
             outline-color: var(--dialog-accent, royalblue);
+            color: var(--dialog-secondary, rgb(50, 50, 50));
+            font-family: var(--dialog-font-family, Verdana);
         }
 
-        body, .fulcrum-editor {
+        body,
+        .fulcrum-editor {
             background-color: var(--body-bg-color, rgb(50, 50, 50));
         }
 
@@ -85,18 +87,34 @@
             color: var(--render-accent, royalblue);
         }
 
-        #editor, #displayText {
+        #editor,
+        #displayText {
             background-color: var(--editor-primary, silver);
             color: var(--editor-secondary, rgb(50, 50, 50));
             font-family: var(--editor-font-family, Verdana);
         }
 
-        .symbol-editor {
-            background-color: var(--dialog-primary, silver);
-            color: var(--dialog-secondary, rgb(50, 50, 50));
-            font-family: var(--dialog-font-family, Verdana);
+        #objectBank {
+            left: 75%;
+            top: 40%;
         }
 
+        #objectBank a {
+            color: var(--dialog-secondary, rgb(50, 50, 50));
+            font-family: var(--dialog-font-family, Verdana);
+            text-decoration: none;
+            display: block;
+        }
+
+        #objectBank a:hover {
+            background-color: var(--dialog-accent, royalblue);
+        }
+
+        #objectBank ul {
+            list-style-type: none;
+            margin: 0 1em 0;
+            padding: 0;
+        }
     </style>
 </head>
 
@@ -111,6 +129,11 @@
     <div class="dialog symbol-editor" id="renameSymbolDialog" style="display: none;">
         <header>Rename Symbol</header>
         <input type="text" id="newSymbolName" onblur="closeRenameSymbolDialog()">
+    </div>
+
+    <div class="dialog" id="objectBank" style="display: none;">
+        <header>Object Bank</header>
+        <hr>
     </div>
 
     <script>
@@ -129,7 +152,7 @@
             themeStyle.type = 'text/css';
 
             readTextFile(response).then((css) => {
-                console.log(css)
+                //console.log(css)
                 if (themeStyle.styleSheet) {
                     themeStyle.styleSheet.cssText = css;
                 } else {
@@ -144,7 +167,7 @@
             renderStyle.type = 'text/css';
 
             readTextFile(response).then((css) => {
-                console.log(css)
+                //console.log(css)
                 if (renderStyle.styleSheet) {
                     renderStyle.styleSheet.cssText = css;
                 } else {
@@ -152,15 +175,68 @@
                 }
             });
             head.insertBefore(renderStyle, styleElement);
-        });        
+        });
+
+        const getCursorXY = (input, selectionPoint) => {
+            const {
+                offsetLeft: inputX,
+                offsetTop: inputY,
+            } = input
+            // create a dummy element that will be a clone of our input
+            const div = document.createElement('div')
+            // get the computed style of the input and clone it onto the dummy element
+            const copyStyle = getComputedStyle(input)
+            for (const prop of copyStyle) {
+                div.style[prop] = copyStyle[prop]
+            }
+            // we need a character that will replace whitespace when filling our dummy element if it's a single line <input/>
+            const swap = '.'
+            const inputValue = input.tagName === 'INPUT' ? input.value.replace(/ /g, swap) : input.value
+            // set the div content to that of the textarea up until selection
+            const textContent = inputValue.substr(0, selectionPoint)
+            // set the text content of the dummy element div
+            div.textContent = textContent
+            if (input.tagName === 'TEXTAREA') div.style.height = 'auto'
+            // if a single line input then the div needs to be single line and not break out like a text area
+            if (input.tagName === 'INPUT') div.style.width = 'auto'
+            // create a marker element to obtain caret position
+            const span = document.createElement('span')
+            // give the span the textContent of remaining content so that the recreated dummy element is as close as possible
+            span.textContent = inputValue.substr(selectionPoint) || '.'
+            // append the span marker to the div
+            div.appendChild(span)
+            // append the dummy element to the body
+            document.body.appendChild(div)
+            // get the marker position, this is the caret position top and left relative to the input
+            const { offsetLeft: spanX, offsetTop: spanY } = span
+            // lastly, remove that dummy element
+            // NOTE:: can comment this out for debugging purposes if you want to see where that span is rendered
+            document.body.removeChild(div)
+            // return an object with the x and y of the caret. account for input positioning so that you don't need to wrap the input
+            return {
+                x: inputX + spanX,
+                y: inputY + spanY,
+            }
+        }
+
+        function elementToCursor(element) {
+            var { x, y } = getCursorXY(window.editor, window.editor.selectionEnd);
+            //console.log(x + "," + y);
+            var screenHeight = window.screen.height;
+            element.style.left = `${x}px`;
+            element.style.bottom = `${screenHeight - y}px`;
+        }
 
         var sessionData = {
             currentFileName: "",
             currentFilePath: "",
             currentFileType: "",
             currentSelectedText: "",
-            lastSaveValue: ""
+            lastSaveValue: "",
+            lastObjectBank: {},
         }
+
+        dragElement(window.objectBank);
 
         window.editor.addEventListener('keydown', function (e) {
             if (e.key == 'Tab') {
@@ -175,6 +251,47 @@
                 this.selectionStart = this.selectionEnd = start + 1;
             }
         });
+
+        function dragElement(elmnt) {
+            var pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
+            if (document.getElementById(elmnt.id + "header")) {
+                // if present, the header is where you move the DIV from:
+                document.getElementById(elmnt.id + "header").onmousedown = dragMouseDown;
+            } else {
+                // otherwise, move the DIV from anywhere inside the DIV:
+                elmnt.onmousedown = dragMouseDown;
+            }
+
+            function dragMouseDown(e) {
+                e = e || window.event;
+                e.preventDefault();
+                // get the mouse cursor position at startup:
+                pos3 = e.clientX;
+                pos4 = e.clientY;
+                document.onmouseup = closeDragElement;
+                // call a function whenever the cursor moves:
+                document.onmousemove = elementDrag;
+            }
+
+            function elementDrag(e) {
+                e = e || window.event;
+                e.preventDefault();
+                // calculate the new cursor position:
+                pos1 = pos3 - e.clientX;
+                pos2 = pos4 - e.clientY;
+                pos3 = e.clientX;
+                pos4 = e.clientY;
+                // set the element's new position:
+                elmnt.style.top = (elmnt.offsetTop - pos2) + "px";
+                elmnt.style.left = (elmnt.offsetLeft - pos1) + "px";
+            }
+
+            function closeDragElement() {
+                // stop moving when mouse button is released:
+                document.onmouseup = null;
+                document.onmousemove = null;
+            }
+        }
 
         window.editor.addEventListener("select", function (e) {
             let selectionStart = event.target.selectionStart;
@@ -194,7 +311,7 @@
                     selectionEnd,
                 );
 
-                if (event.target.value.substring(selectionStart - 4, selectionEnd + 2) === "def "+selectedText+" {") {
+                if (event.target.value.substring(selectionStart - 4, selectionEnd + 2) === "def " + selectedText + " {") {
                     enableButton = true;
                 }
             }
@@ -207,6 +324,7 @@
         appWindow.listen('rename-symbol', (event) => {
             window.newSymbolName.value = sessionData.currentSelectedText;
             window.renameSymbolDialog.style.display = "initial";
+            elementToCursor(window.renameSymbolDialog);
             window.newSymbolName.focus();
         })
 
@@ -231,7 +349,7 @@
                 sessionData.currentSelectedText = "";
                 render();
             }
-            
+
             closeRenameSymbolDialog();
         }
 
@@ -281,7 +399,7 @@
         appWindow.listen('save-file', (event) => {
             if (sessionData.currentFilePath) {
                 writeTextFile(sessionData.currentFilePath, window.editor.value).then((response) => {
-                    console.log(sessionData.currentFilePath);
+                    //console.log(sessionData.currentFilePath);
                 });
                 appWindow.setTitle("Fulcrum Editor - " + sessionData.currentFileName);
                 sessionData.lastSaveValue = window.editor.value;
@@ -298,7 +416,7 @@
             sessionData.currentFileType = sessionData.currentFileName.split('.').pop();
 
             writeTextFile(event.payload, window.editor.value).then((response) => {
-                console.log(sessionData.currentFilePath);
+                //console.log(sessionData.currentFilePath);
             });
             appWindow.setTitle("Fulcrum Editor - " + sessionData.currentFileName);
             checkFileType();
@@ -321,6 +439,62 @@
             invoke('set_save_button', { enabled: enabled });
         }
 
+        appWindow.listen('object-bank', (event) => {
+            window.objectBank.style.display = window.objectBank.style.display == 'block' ? 'none' : 'block';
+        });
+
+        appWindow.listen('populate-object-bank', (event) => {
+            //console.log(JSON.stringify(sessionData.lastObjectBank) + " <=> " + JSON.stringify(event.payload));
+            if (!_.isEqual(sessionData.lastObjectBank, event.payload)) {
+                window.objectBank.innerHTML = "<header>Object Bank</header><hr>";
+                sessionData.lastObjectBank = event.payload;
+                for (const [key, properties] of Object.entries(event.payload)) {
+                    //console.log(`${key}: ${properties}`);
+
+                    let object = document.createElement('div');
+
+                    let objectName = document.createElement('a');
+                    objectName.href = "#";
+                    objectName.appendChild(document.createTextNode(key));
+                    objectName.addEventListener('click', function () {
+                        var el = this.nextElementSibling;
+                        el.style.display = el.style.display == 'block' ? 'none' : 'block';
+                    });
+                    object.appendChild(objectName);
+
+                    let objectProperties = document.createElement('ul');
+                    for (var i = 0; i < properties.length; i++) {
+                        let property = document.createElement('li');
+                        property.dataset.parent = key;
+                        let propertyName = document.createElement('a');
+                        propertyName.href = "#";
+                        propertyName.appendChild(document.createTextNode(properties[i]));
+                        property.appendChild(propertyName);
+                        property.addEventListener('click', function () {
+                            insertString("@" + this.dataset.parent + ":" + this.innerText);
+                        });
+                        objectProperties.appendChild(property);
+                        objectProperties.style.display = 'none';
+                    }
+                    object.appendChild(objectProperties);
+
+                    window.objectBank.appendChild(object);
+                }
+            }
+
+        });
+
+        function insertString(string) {
+            //console.log(string);
+            let selectionStart = window.editor.selectionStart;
+            let selectionEnd = window.editor.selectionEnd;
+            let newString = window.editor.value.substring(0, selectionStart) + string + window.editor.value.substring(selectionEnd);
+            window.editor.value = newString;
+            window.editor.innerHTML = window.editor.value;
+            window.editor.selectionStart = window.editor.selectionEnd = selectionStart + string.length;
+            render();
+        }
+
         function render() {
             if (window.editor.value !== sessionData.lastSaveValue) {
                 appWindow.setTitle("Fulcrum Editor - " + sessionData.currentFileName + "*");
@@ -338,7 +512,9 @@
                         .then((rendered_text) => {
                             window.displayHTML.innerHTML = rendered_text;
                         })
-                })
+                });
+
+            invoke('set_export_button', { enabled: window.displayText.value !== "" })
         }
 
     </script>

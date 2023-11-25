@@ -1,11 +1,11 @@
 [package]
-name = "app"
-version = "0.1.0"
-description = "A Tauri App"
+name = "fulcrum_editor"
+version = "1.2.1"
+description = "An object-oriented text editor to boost workflow for authors."
 authors = ["you"]
 license = ""
 repository = ""
-default-run = "app"
+default-run = "fulcrum_editor"
 edition = "2021"
 rust-version = "1.60"
 
