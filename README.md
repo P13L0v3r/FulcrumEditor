@@ -39,7 +39,7 @@ To reference an object and the value of one of its properties, use the following
 
 ### Output
 
-James says that he likes cake. He likes cake so much!
+    James says that he likes cake. He likes cake so much!
 
 This demonstrates how an author could replace the name, pronouns, and likes of this character without having to dig through an entire manuscript to replace these things any time they're used.
 
