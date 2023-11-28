@@ -1,7 +1,6 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use comrak::{markdown_to_html, Options};
 use inflector::*;
 use serde::Deserialize;
 use serde_json::{Map, Value};
@@ -10,6 +9,8 @@ use tauri::{
     api::dialog::FileDialogBuilder, CustomMenuItem, GlobalShortcutManager, Manager, Menu, Submenu,
     Window,
 };
+
+use mdbook::utils::render_markdown;
 
 const NEW_SHORTCUT: &str = "CommandOrControl+N";
 const OPEN_SHORTCUT: &str = "CommandOrControl+O";
@@ -20,7 +21,6 @@ const RENAME_SHORTCUT: &str = "CommandOrControl+Shift+R";
 const OBJECT_BANK_SHORTCUT: &str = "CommandOrControl+B";
 
 fn main() {
-    // here `"quit".to_string()` defines the menu item id, and the second parameter is the menu item label.
     let new_file = CustomMenuItem::new("new_file".to_string(), "New").accelerator(NEW_SHORTCUT);
     let open_file = CustomMenuItem::new("open_file".to_string(), "Open").accelerator(OPEN_SHORTCUT);
     let save_file = CustomMenuItem::new("save_file".to_string(), "Save")
@@ -434,7 +434,9 @@ fn parse_text(text_to_parse: &str, window: Window) -> String {
 #[tauri::command(rename_all = "snake_case")]
 fn render_text(text_to_render: &str, file_extension: &str) -> String {
     match file_extension {
-        "md" => markdown_to_html(text_to_render, &Options::default()),
+        "md" => {
+            render_markdown(text_to_render, false)
+        },
         _ => text_to_render.to_string(),
     }
 }
